@@ -304,7 +304,16 @@ async function loadPlayers() {
     updatePlayerDatalist(playerNames);
     const html = players.length > 0 ? players.map(p => `
         <tr class="${p.punished ? 'punished' : ''}">
-            <td><img src="https://mc-heads.net/avatar/${p.name}/32" alt="${p.name}" style="width: 24px; height: 24px; border-radius: 3px; margin-right: 8px; vertical-align: middle; background: #444;"><span class="player-status"></span>${p.name}</td>
+            <td>
+                <img src="https://mc-heads.net/avatar/${p.name}/32" alt="${p.name}" style="width: 24px; height: 24px; border-radius: 3px; margin-right: 8px; vertical-align: middle; background: #444;">
+                <span class="player-status"></span>${p.name}
+            </td>
+            <td>
+                <div style="display: flex; flex-direction: column; gap: 4px;">
+                    <span style="display: inline-block; color: ${p.rankColor || '#d4d4d4'}; font-weight: 600;">${p.rank || 'Unranked'}</span>
+                    <span style="color: #969696; font-size: 12px;">${p.discord ? p.discord : 'Discord not linked'}</span>
+                </div>
+            </td>
             <td>${p.health}/20</td>
             <td>${p.world} (${p.x}, ${p.y}, ${p.z})</td>
             <td>${p.warnings || 0}</td>
@@ -315,7 +324,7 @@ async function loadPlayers() {
                 <button onclick="healPlayer('${p.name}')" style="padding: 4px 8px; font-size: 11px;">Heal</button>
             </td>
         </tr>
-    `).join('') : '<tr><td colspan="7">No players online</td></tr>';
+    `).join('') : '<tr><td colspan="8">No players online</td></tr>';
     document.getElementById('players-list').innerHTML = html;
 }
 
