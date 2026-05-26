@@ -119,7 +119,10 @@ function switchTab(name, button) {
     localStorage.setItem('activeTab', name);
     
     // Load tab-specific data
-    if (name === 'overview') updateOverview();
+    if (name === 'overview') {
+        updateOverview();
+        loadNetworkOverviewStatus();
+    }
     if (name === 'players') loadPlayers();
     if (name === 'tickets') loadTickets();
     if (name === 'moderation') loadBanned();
@@ -234,7 +237,6 @@ async function updateOverview() {
     const players = response && response.players ? response.players : [];
     const tickets = await apiCall('/tickets');
     const muted = await apiCall('/muted');
-    const network = await apiCall('/network', 'GET', null, true);
     
     let punished = 0;
     if (players && players.length > 0) {
@@ -243,8 +245,14 @@ async function updateOverview() {
         document.getElementById('stat-players').textContent = players.length;
     }
     document.getElementById('stat-punished').textContent = punished;
-    document.getElementById('stat-tickets').textContent = tickets ? tickets.filter(t => t.status === 'open' || t.status === 'in_progress').length : 0;
-    document.getElementById('stat-muted').textContent = muted ? muted.length : 0;
+    const ticketList = Array.isArray(tickets) ? tickets : (tickets && Array.isArray(tickets.tickets) ? tickets.tickets : []);
+    const mutedList = Array.isArray(muted) ? muted : (muted && Array.isArray(muted.players) ? muted.players : []);
+    document.getElementById('stat-tickets').textContent = ticketList.filter(t => t.status === 'open' || t.status === 'in_progress').length;
+    document.getElementById('stat-muted').textContent = mutedList.length;
+}
+
+async function loadNetworkOverviewStatus() {
+    const network = await apiCall('/network', 'GET', null, true);
     renderNetworkOverviewStatus(network && network.runtime ? network.runtime : null);
 }
 
