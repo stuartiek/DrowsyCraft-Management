@@ -234,6 +234,7 @@ async function updateOverview() {
     const players = response && response.players ? response.players : [];
     const tickets = await apiCall('/tickets');
     const muted = await apiCall('/muted');
+    const network = await apiCall('/network', 'GET', null, true);
     
     let punished = 0;
     if (players && players.length > 0) {
@@ -244,6 +245,38 @@ async function updateOverview() {
     document.getElementById('stat-punished').textContent = punished;
     document.getElementById('stat-tickets').textContent = tickets ? tickets.filter(t => t.status === 'open' || t.status === 'in_progress').length : 0;
     document.getElementById('stat-muted').textContent = muted ? muted.length : 0;
+    renderNetworkOverviewStatus(network && network.runtime ? network.runtime : null);
+}
+
+function renderNetworkOverviewStatus(runtime) {
+    const profileBackend = document.getElementById('stat-network-profile-backend');
+    const tokenBackend = document.getElementById('stat-network-token-backend');
+    const profileMode = document.getElementById('stat-network-profile-mode');
+    const tokenMode = document.getElementById('stat-network-token-mode');
+
+    if (!profileBackend || !tokenBackend || !profileMode || !tokenMode) {
+        return;
+    }
+
+    if (!runtime) {
+        profileBackend.textContent = 'Unavailable';
+        tokenBackend.textContent = 'Unavailable';
+        profileMode.textContent = 'Network API unavailable';
+        tokenMode.textContent = 'Network API unavailable';
+        profileMode.style.color = '#d7ba7d';
+        tokenMode.style.color = '#d7ba7d';
+        return;
+    }
+
+    const profileShared = runtime.profileSharedBackendActive === true;
+    const tokenShared = runtime.tokenSharedBackendActive === true;
+
+    profileBackend.textContent = runtime.profileBackend || 'Unavailable';
+    tokenBackend.textContent = runtime.tokenBackend || 'Unavailable';
+    profileMode.textContent = profileShared ? 'Shared backend active' : 'Local fallback active';
+    tokenMode.textContent = tokenShared ? 'Shared backend active' : 'Local fallback active';
+    profileMode.style.color = profileShared ? '#4ec9b0' : '#d7ba7d';
+    tokenMode.style.color = tokenShared ? '#4ec9b0' : '#d7ba7d';
 }
 
 
