@@ -2044,7 +2044,7 @@
     </div>
 </div>
 
-<script src="/scripts/realm.js?v=30"></script>
+<script src="/scripts/realm.js?v=31"></script>
 <script>
     // --- GLOBAL API LOADING SPINNER INTERCEPTOR ---
     window.isBackgroundPolling = false;
@@ -2075,8 +2075,10 @@
     }
 
     window.viewReputation = openReputationModal;
+    window.viewPlayerReputation = openReputationModal;
     window.addEventListener('load', function() {
         window.viewReputation = openReputationModal;
+        window.viewPlayerReputation = openReputationModal;
     });
 
     // --- TICKET SYSTEM FIX ---
