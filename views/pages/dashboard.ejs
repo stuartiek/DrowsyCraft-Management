@@ -2064,83 +2064,20 @@
         };
     }
 
-    /**
-     * MODERN REPUTATION MODAL LOGIC
-     * This script aggressively intercepts calls to viewReputation to prevent
-     * the old browser alerts from showing.
-     */
-    
-    // 1. The Core Logic - fetching and showing the modal
+    // Keep older button names mapped to the new modal-driven handler in realm.js.
     async function openReputationModal(playerName) {
-        const modal = document.getElementById('reputation-modal');
-        
-        // Reset and show modal immediately
-        modal.style.display = 'block';
-        document.getElementById('modal-rep-player').textContent = playerName;
-        document.getElementById('modal-rep-status').textContent = 'Loading...';
-        document.getElementById('modal-rep-status').style.color = '#a0a0b8';
-
-        try {
-            // This assumes an API endpoint exists to fetch reputation data for a player.
-            const response = await fetch(`/api/reputation/${playerName}`);
-            if (!response.ok) throw new Error('Player reputation data not found');
-            const data = await response.json();
-
-            // Populate the modal fields with the fetched data
-            if (data.name) document.getElementById('modal-rep-player').textContent = data.name;
-            document.getElementById('modal-rep-score').textContent = data.score;
-            document.getElementById('modal-rep-status').textContent = data.status || 'Unknown';
-            document.getElementById('modal-rep-warnings').textContent = data.warnings;
-            document.getElementById('modal-rep-mutes').textContent = data.mutes;
-            document.getElementById('modal-rep-bans').textContent = data.bans;
-            document.getElementById('modal-rep-positive').textContent = data.positiveNotes;
-
-            // Dynamically set the color of the status text
-            const statusEl = document.getElementById('modal-rep-status');
-            statusEl.style.color = data.score > 80 ? '#10b981' : (data.score > 50 ? '#f59e0b' : '#ef4444');
-        } catch (error) {
-            console.error('Failed to load reputation details:', error);
-            // Show error in modal instead of alert
-            document.getElementById('modal-rep-status').textContent = 'Data Unavailable';
-            document.getElementById('modal-rep-status').style.color = '#ef4444';
-            document.getElementById('modal-rep-score').textContent = 'N/A';
+        if (typeof window.viewPlayerModerationDetails === 'function') {
+            return window.viewPlayerModerationDetails(playerName, 'reputation');
+        }
+        if (typeof window.viewPlayerReputation === 'function') {
+            return window.viewPlayerReputation(playerName);
         }
     }
 
-    // 2. Force Global Override (runs immediately)
     window.viewReputation = openReputationModal;
-
-    // 3. Force Global Override Again (runs after page load to beat realm.js)
     window.addEventListener('load', function() {
         window.viewReputation = openReputationModal;
     });
-
-    // 4. THE NUCLEAR OPTION: Event Interception
-    // This captures the click event BEFORE it reaches the button's own onclick handler.
-    document.addEventListener('click', function(e) {
-        // Find if the clicked element or its parent is a button
-        const btn = e.target.closest('button');
-        
-        if (btn) {
-            // Check if this button is trying to call viewReputation
-            const onclickStr = btn.getAttribute('onclick');
-            
-            if (onclickStr && onclickStr.includes('viewReputation')) {
-                // Extract the player name from the string: viewReputation('Steve')
-                const match = onclickStr.match(/viewReputation\('"['"]\)/);
-                
-                if (match && match[1]) {
-                    // STOP the old alert from firing
-                    e.preventDefault();
-                    e.stopPropagation();
-                    e.stopImmediatePropagation();
-                    
-                    // Fire our new modal
-                    openReputationModal(match[1]);
-                }
-            }
-        }
-    }, true); // 'true' enables Capture Phase (runs before standard events)
 
     // --- TICKET SYSTEM FIX ---
     // Defines the openTicketModal function to ensure the popup opens correctly with Auth.
