@@ -15,10 +15,16 @@ let shouldStreamServerLogs = false;
 let liveDataSocket = null;
 let latestLivePlayersPayload = null;
 let latestWarningsResponse = { warnings: [] };
+let latestTicketsPayload = [];
+let latestMutedPayload = [];
+let hasLiveTicketsSnapshot = false;
+let hasLiveMutedSnapshot = false;
 let currentModerationDetailPlayer = null;
 let currentModerationDetailSource = 'reputation';
 let lastChatSignature = '';
 let lastPunishmentsSignature = '';
+let lastTicketsSignature = '';
+let lastMutedSignature = '';
 let lastRenderedLogsViewKey = '';
 const UNSUPPORTED_TABS = new Set(['roleplay', 'voterewards']);
 
@@ -309,6 +315,12 @@ function handleLiveDataMessage(message) {
             latestLivePlayersPayload = message.data || { players: [] };
             applyLivePlayersSnapshot(latestLivePlayersPayload);
             break;
+        case 'tickets':
+            renderTickets(Array.isArray(message.data) ? message.data : []);
+            break;
+        case 'muted':
+            renderMuted(Array.isArray(message.data) ? message.data : []);
+            break;
         case 'chat':
             renderChatEntries(Array.isArray(message.data) ? message.data : []);
             break;
@@ -384,20 +396,21 @@ function openServerLogsStream() {
 async function updateOverview() {
     const response = await apiCall('/players');
     const players = response && response.players ? response.players : [];
-    const tickets = await apiCall('/tickets');
-    const muted = await apiCall('/muted');
-    
-    let punished = 0;
-    if (players && players.length > 0) {
-        updatePlayerDatalist(players.map(p => p.name));
-        players.forEach(p => { if (p.punished) punished++; });
-        document.getElementById('stat-players').textContent = players.length;
+    updateOverviewFromPlayers(players);
+
+    if (hasLiveTicketsSnapshot) {
+        updateOverviewFromTickets(latestTicketsPayload);
+    } else {
+        const tickets = await apiCall('/tickets');
+        renderTickets(Array.isArray(tickets) ? tickets : (tickets && Array.isArray(tickets.tickets) ? tickets.tickets : []));
     }
-    document.getElementById('stat-punished').textContent = punished;
-    const ticketList = Array.isArray(tickets) ? tickets : (tickets && Array.isArray(tickets.tickets) ? tickets.tickets : []);
-    const mutedList = Array.isArray(muted) ? muted : (muted && Array.isArray(muted.players) ? muted.players : []);
-    document.getElementById('stat-tickets').textContent = ticketList.filter(t => t.status === 'open' || t.status === 'in_progress').length;
-    document.getElementById('stat-muted').textContent = mutedList.length;
+
+    if (hasLiveMutedSnapshot) {
+        updateOverviewFromMuted(latestMutedPayload);
+    } else {
+        const muted = await apiCall('/muted');
+        renderMuted(Array.isArray(muted) ? muted : (muted && Array.isArray(muted.players) ? muted.players : []));
+    }
 }
 
 function updateOverviewFromPlayers(players) {
@@ -417,6 +430,23 @@ function updateOverviewFromPlayers(players) {
 
     onlinePlayersStat.textContent = rows.length;
     punishedPlayersStat.textContent = punished;
+}
+
+function updateOverviewFromTickets(tickets) {
+    const ticketsStat = document.getElementById('stat-tickets');
+    if (!ticketsStat) {
+        return;
+    }
+    const rows = Array.isArray(tickets) ? tickets : [];
+    ticketsStat.textContent = rows.filter(ticket => ticket && (ticket.status === 'open' || ticket.status === 'in_progress')).length;
+}
+
+function updateOverviewFromMuted(mutedPlayers) {
+    const mutedStat = document.getElementById('stat-muted');
+    if (!mutedStat) {
+        return;
+    }
+    mutedStat.textContent = Array.isArray(mutedPlayers) ? mutedPlayers.length : 0;
 }
 
 async function loadNetworkOverviewStatus() {
@@ -559,13 +589,28 @@ async function healPlayer(player) {
 }
 
 async function loadTickets() {
+    const tickets = await apiCall('/tickets');
+    renderTickets(Array.isArray(tickets) ? tickets : []);
+}
+
+function renderTickets(tickets) {
+    latestTicketsPayload = Array.isArray(tickets) ? tickets : [];
+    hasLiveTicketsSnapshot = true;
+    updateOverviewFromTickets(latestTicketsPayload);
+
+    const signature = buildLiveDataSignature(latestTicketsPayload);
+    if (signature === lastTicketsSignature && getActiveTabName() !== 'tickets') {
+        return;
+    }
+
     const statusFilter = document.getElementById('ticket-status-filter')?.value || '';
     const priorityFilter = document.getElementById('ticket-priority-filter')?.value || '';
-    const url = '/tickets' + (statusFilter || priorityFilter ? '?' + new URLSearchParams({
-        status: statusFilter, priority: priorityFilter
-    }) : '');
-    const tickets = await apiCall(url);
-    
+    const filteredTickets = latestTicketsPayload.filter(ticket => {
+        const statusMatches = !statusFilter || ticket.status === statusFilter;
+        const priorityMatches = !priorityFilter || ticket.priority === priorityFilter;
+        return statusMatches && priorityMatches;
+    });
+
     const getPriorityColor = (p) => {
         const colors = { critical: '#F44336', high: '#FF9800', medium: '#FFC107', low: '#4CAF50' };
         return colors[p] || '#999';
@@ -581,7 +626,7 @@ async function loadTickets() {
         return `<span style="background: ${colors[s] || '#999'}; padding: 2px 6px; border-radius: 3px; font-size: 11px;">${s}</span>`;
     };
 
-    const html = tickets ? tickets.map(t => `
+    const html = filteredTickets.length ? filteredTickets.map(t => `
         <tr onclick="openTicketModal(${t.id})" style="cursor: pointer;">
             <td>${t.id}</td>
             <td>${t.player}</td>
@@ -595,6 +640,7 @@ async function loadTickets() {
         </tr>
     `).join('') : '<tr><td colspan="9">No tickets</td></tr>';
     document.getElementById('tickets-list').innerHTML = html;
+    lastTicketsSignature = signature;
 }
 
 async function openTicketModal(ticketId) {
@@ -931,9 +977,7 @@ function renderWarningsTable(response) {
     }
 
     if (document.getElementById('reputation-modal')?.style.display === 'block' && currentModerationDetailPlayer) {
-        const playerWarnings = warnings.filter(warning => (warning.player || '').toLowerCase() === currentModerationDetailPlayer.toLowerCase());
-        document.getElementById('modal-rep-warning-history').innerHTML = renderPlayerWarnings(playerWarnings);
-        document.getElementById('modal-rep-warnings').textContent = playerWarnings.length;
+        refreshOpenModerationModal();
     }
 }
 
@@ -961,6 +1005,9 @@ async function loadBanned() {
         </tr>
     `).join('') : '<tr><td colspan="3">No banned players</td></tr>';
     document.getElementById('banned-list').innerHTML = html;
+    if (document.getElementById('reputation-modal')?.style.display === 'block' && currentModerationDetailPlayer) {
+        refreshOpenModerationModal();
+    }
 }
 
 async function unbanPlayer(player) {
@@ -1006,7 +1053,20 @@ async function mutePlayer() {
 
 async function loadMuted() {
     const muted = await apiCall('/muted');
-    const html = muted && muted.length ? muted.map(m => `
+    renderMuted(Array.isArray(muted) ? muted : []);
+}
+
+function renderMuted(muted) {
+    latestMutedPayload = Array.isArray(muted) ? muted : [];
+    hasLiveMutedSnapshot = true;
+    updateOverviewFromMuted(latestMutedPayload);
+
+    const signature = buildLiveDataSignature(latestMutedPayload);
+    if (signature === lastMutedSignature && getActiveTabName() !== 'mutes') {
+        return;
+    }
+
+    const html = latestMutedPayload.length ? latestMutedPayload.map(m => `
             <tr>
                 <td>${m.name || 'Unknown'}</td>
                 <td>${m.reason || 'No reason'}</td>
@@ -1014,6 +1074,10 @@ async function loadMuted() {
             </tr>
         `).join('') : '<tr><td colspan="3">No muted players</td></tr>';
     document.getElementById('muted-list').innerHTML = html;
+    lastMutedSignature = signature;
+    if (document.getElementById('reputation-modal')?.style.display === 'block' && currentModerationDetailPlayer) {
+        refreshOpenModerationModal();
+    }
 }
 
 async function unmutePlayer(player) {
@@ -1663,68 +1727,104 @@ async function loadReputation() {
     document.getElementById('reputation-list').innerHTML = html;
 }
 
-async function loadPlayerWarnings(player) {
-    const response = latestWarningsResponse && Array.isArray(latestWarningsResponse.warnings)
-        ? latestWarningsResponse
-        : await apiCall('/warnings', 'GET', null, true);
-    const warnings = response && Array.isArray(response.warnings) ? response.warnings : [];
-    return warnings.filter(warning => (warning.player || '').toLowerCase() === player.toLowerCase());
+function formatModerationMetric(value, fallback = 'Restricted') {
+    return typeof value === 'number' ? String(value) : fallback;
 }
 
-function renderPlayerWarnings(warnings) {
-    if (!warnings.length) {
-        return '<div style="color: #94a3b8; font-size: 14px;">No warnings found for this player.</div>';
+function getModerationTimelineStyle(event) {
+    if (event.type === 'warning') {
+        return { accent: '#f59e0b', background: 'rgba(120, 53, 15, 0.28)', icon: '⚠️' };
+    }
+    if (event.type === 'punishment') {
+        return { accent: '#ef4444', background: 'rgba(127, 29, 29, 0.28)', icon: '⛓️' };
+    }
+    if (event.type === 'ban') {
+        return { accent: '#dc2626', background: 'rgba(127, 29, 29, 0.34)', icon: '🚫' };
+    }
+    if (event.type === 'mute') {
+        return { accent: '#8b5cf6', background: 'rgba(76, 29, 149, 0.26)', icon: '🔇' };
     }
 
-    return warnings.map(warning => `
-        <div style="border: 1px solid var(--card-border); border-left: 4px solid #f59e0b; border-radius: 8px; padding: 12px 14px; background: rgba(15, 23, 42, 0.55); margin-bottom: 10px;">
-            <div style="display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 6px;">
-                <strong style="color: #fbbf24;">Warning #${warning.warningNumber || 'N/A'}</strong>
-                <span style="color: #94a3b8; font-size: 12px;">${warning.date ? new Date(warning.date).toLocaleString() : 'Unknown date'}</span>
+    const noteStyle = getCategoryStyle(event.category || 'INFO');
+    return { accent: noteStyle.border, background: noteStyle.bg, icon: noteStyle.icon };
+}
+
+function renderModerationTimeline(events, hasUndatedEntries) {
+    const rows = Array.isArray(events) ? events : [];
+    if (!rows.length) {
+        const undatedNotice = hasUndatedEntries
+            ? '<div style="margin-top: 12px; color: #94a3b8; font-size: 12px;">Some moderation records are stored without timestamps and may not appear in exact order.</div>'
+            : '';
+        return `<div style="color: #94a3b8; font-size: 14px;">No moderation entries are available for this player.</div>${undatedNotice}`;
+    }
+
+    const html = rows.map(event => {
+        const style = getModerationTimelineStyle(event || {});
+        const meta = [];
+        if (event.actor) {
+            meta.push(`By ${event.actor}`);
+        }
+        if (event.endsAt) {
+            meta.push(`Ends ${event.endsAt}`);
+        }
+        if (event.category && event.type === 'note') {
+            meta.push(event.category);
+        }
+
+        return `
+            <div style="border: 1px solid var(--card-border); border-left: 4px solid ${style.accent}; border-radius: 8px; padding: 12px 14px; background: ${style.background}; margin-bottom: 10px;">
+                <div style="display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; align-items: center;">
+                    <strong style="color: ${style.accent};">${style.icon} ${event.title || 'Moderation event'}</strong>
+                    <span style="color: #94a3b8; font-size: 12px;">${event.timestampLabel || 'Unknown date'}</span>
+                </div>
+                <div style="color: #e2e8f0; margin-bottom: ${meta.length ? '6px' : '0'}; line-height: 1.5;">${event.detail || 'No details available.'}</div>
+                ${meta.length ? `<div style="color: #94a3b8; font-size: 12px;">${meta.join(' · ')}</div>` : ''}
             </div>
-            <div style="color: #e2e8f0; margin-bottom: 6px;">${warning.reason || 'No reason'}</div>
-            <div style="color: #94a3b8; font-size: 12px;">Issued by ${warning.issuedBy || 'Unknown'}</div>
-        </div>
-    `).join('');
+        `;
+    }).join('');
+
+    const undatedNotice = hasUndatedEntries
+        ? '<div style="margin-top: 12px; color: #94a3b8; font-size: 12px;">Some moderation records are stored without timestamps and may not appear in exact order.</div>'
+        : '';
+    return html + undatedNotice;
+}
+
+function refreshOpenModerationModal() {
+    if (document.getElementById('reputation-modal')?.style.display === 'block' && currentModerationDetailPlayer) {
+        viewPlayerModerationDetails(currentModerationDetailPlayer, currentModerationDetailSource);
+    }
 }
 
 async function viewPlayerModerationDetails(player, source = 'reputation') {
     currentModerationDetailPlayer = player;
     currentModerationDetailSource = source;
-    const [warnings, reputationResponse, playersResponse] = await Promise.all([
-        loadPlayerWarnings(player),
-        apiCall('/reputation', 'GET', { player }, true),
-        apiCall('/players', 'GET', null, true)
-    ]);
+    const details = await apiCall('/moderation/timeline', 'GET', { player }, true);
+    if (!details) {
+        return;
+    }
 
-    const playerRow = playersResponse && Array.isArray(playersResponse.players)
-        ? playersResponse.players.find(entry => entry.name && entry.name.toLowerCase() === player.toLowerCase())
-        : null;
+    const displayPlayer = details.player || player;
+    const score = typeof details.score === 'number' ? details.score : 'Restricted';
+    const status = details.status || 'Restricted';
 
-    const details = reputationResponse || {};
-    const warningCount = typeof details.warnings === 'number' ? details.warnings : warnings.length;
-    const banCount = typeof details.bans === 'number' ? details.bans : 0;
-    const muteCount = typeof details.mutes === 'number' ? details.mutes : 0;
-    const positiveNotes = typeof details.positiveNotes === 'number' ? details.positiveNotes : 0;
-    const score = typeof details.score === 'number' ? details.score : (0 - (warningCount * 15) - (banCount * 30));
-
-    document.getElementById('modal-rep-player').textContent = player;
+    document.getElementById('modal-rep-player').textContent = displayPlayer;
     document.getElementById('modal-rep-score').textContent = score;
-    document.getElementById('modal-rep-status').textContent = score >= 50 ? 'Good' : (score <= -50 ? 'Bad' : 'Neutral');
-    document.getElementById('modal-rep-warnings').textContent = warningCount;
-    document.getElementById('modal-rep-mutes').textContent = muteCount;
-    document.getElementById('modal-rep-bans').textContent = banCount;
-    document.getElementById('modal-rep-positive').textContent = positiveNotes;
+    document.getElementById('modal-rep-status').textContent = status;
+    document.getElementById('modal-rep-warnings').textContent = formatModerationMetric(details.warnings);
+    document.getElementById('modal-rep-mutes').textContent = formatModerationMetric(details.mutes);
+    document.getElementById('modal-rep-bans').textContent = formatModerationMetric(details.bans);
+    document.getElementById('modal-rep-positive').textContent = formatModerationMetric(details.positiveNotes);
     const sourceLabels = {
         players: 'Opened from Players',
         reputation: 'Opened from Reputation',
         notes: 'Opened from Notes',
-        punishments: 'Opened from Punishments'
+        punishments: 'Opened from Punishments',
+        mutes: 'Opened from Mutes'
     };
     document.getElementById('modal-rep-source').textContent = sourceLabels[source] || 'Opened from Reputation';
-    document.getElementById('modal-rep-playtime').textContent = playerRow ? `${playerRow.playtime || 0} h` : 'Unknown';
-    document.getElementById('modal-rep-punished').textContent = playerRow ? (playerRow.punished ? 'Active punishment' : 'No active punishment') : 'Unknown';
-    document.getElementById('modal-rep-warning-history').innerHTML = renderPlayerWarnings(warnings);
+    document.getElementById('modal-rep-playtime').textContent = typeof details.playtime === 'number' ? `${details.playtime} h` : 'Restricted';
+    document.getElementById('modal-rep-punished').textContent = details.punished === true ? 'Active punishment' : (details.punished === false ? 'No active punishment' : 'Restricted');
+    document.getElementById('modal-rep-timeline').innerHTML = renderModerationTimeline(details.timeline, details.hasUndatedEntries);
     document.getElementById('reputation-modal').style.display = 'block';
 }
 
@@ -1885,6 +1985,9 @@ function renderPunishments(punishments) {
     `).join('') : '<tr><td colspan="7">No active punishments</td></tr>';
     document.getElementById('active-punishments').innerHTML = html;
     lastPunishmentsSignature = signature;
+    if (document.getElementById('reputation-modal')?.style.display === 'block' && currentModerationDetailPlayer) {
+        refreshOpenModerationModal();
+    }
 }
 
 async function createCustomPunishment() {
