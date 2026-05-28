@@ -762,8 +762,13 @@
 
         <!-- REPUTATION DETAIL MODAL -->
         <div id="reputation-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.8); z-index: 1000; overflow-y: auto;">
-            <div class="card" style="margin: 5% auto; width: 90%; max-width: 500px;">
+            <div class="card" style="margin: 5% auto; width: 90%; max-width: 760px;">
                 <h2>⭐ Reputation for <span id="modal-rep-player">Player</span></h2>
+                <div style="display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; color: #94a3b8; font-size: 13px; margin-bottom: 16px;">
+                    <span id="modal-rep-source">Opened from Reputation</span>
+                    <span>Playtime: <strong id="modal-rep-playtime" style="color: #e2e8f0;">Unknown</strong></span>
+                    <span>Status: <strong id="modal-rep-punished" style="color: #e2e8f0;">Unknown</strong></span>
+                </div>
                 
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 20px;">
                     <div class="card" style="text-align: center; padding: 1rem !important;">
@@ -784,6 +789,11 @@
                         <li style="padding: 10px 5px; display: flex; justify-content: space-between; border-top: 1px solid var(--card-border);"><span>Bans:</span> <span id="modal-rep-bans" style="font-weight: bold;">0</span></li>
                         <li style="padding: 10px 5px; display: flex; justify-content: space-between; border-top: 1px solid var(--card-border); border-bottom: 1px solid var(--card-border);"><span>Positive Notes:</span> <span id="modal-rep-positive" style="font-weight: bold;">0</span></li>
                     </ul>
+                </div>
+
+                <div style="margin-top: 25px;">
+                    <h3 style="color: var(--text-dim); font-size: 1rem; margin-bottom: 10px;">Warning History</h3>
+                    <div id="modal-rep-warning-history"></div>
                 </div>
 
                 <div style="margin-top: 30px; text-align: right;">

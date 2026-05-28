@@ -332,6 +332,7 @@ async function loadPlayers() {
             <td>${p.playtime || 0} h</td>
             <td>${p.punished ? '⏸️ Punished' : '✅ OK'}</td>
             <td>
+                <button onclick="viewPlayerModerationDetails('${p.name}', 'players')" style="padding: 4px 8px; font-size: 11px;">View</button>
                 <button onclick="kickPlayer('${p.name}')" style="padding: 4px 8px; font-size: 11px;">Kick</button>
                 <button onclick="healPlayer('${p.name}')" style="padding: 4px 8px; font-size: 11px;">Heal</button>
             </td>
@@ -1430,10 +1431,65 @@ async function loadReputation() {
             <td>${p.warnings || 0}</td>
             <td>${p.bans || 0}</td>
             <td>${p.score >= 50 ? '✅ Good' : (p.score <= -50 ? '❌ Bad' : '⚠️ Neutral')}</td>
-            <td><button onclick="viewPlayerReputation('${p.name}')" style="padding: 4px 8px; font-size: 11px;">View</button></td>
+            <td><button onclick="viewPlayerModerationDetails('${p.name}', 'reputation')" style="padding: 4px 8px; font-size: 11px;">View</button></td>
         </tr>
     `).join('') : '<tr><td colspan="6">No reputation data</td></tr>';
     document.getElementById('reputation-list').innerHTML = html;
+}
+
+async function loadPlayerWarnings(player) {
+    const response = await apiCall('/warnings', 'GET', null, true);
+    const warnings = response && Array.isArray(response.warnings) ? response.warnings : [];
+    return warnings.filter(warning => (warning.player || '').toLowerCase() === player.toLowerCase());
+}
+
+function renderPlayerWarnings(warnings) {
+    if (!warnings.length) {
+        return '<div style="color: #94a3b8; font-size: 14px;">No warnings found for this player.</div>';
+    }
+
+    return warnings.map(warning => `
+        <div style="border: 1px solid var(--card-border); border-left: 4px solid #f59e0b; border-radius: 8px; padding: 12px 14px; background: rgba(15, 23, 42, 0.55); margin-bottom: 10px;">
+            <div style="display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 6px;">
+                <strong style="color: #fbbf24;">Warning #${warning.warningNumber || 'N/A'}</strong>
+                <span style="color: #94a3b8; font-size: 12px;">${warning.date ? new Date(warning.date).toLocaleString() : 'Unknown date'}</span>
+            </div>
+            <div style="color: #e2e8f0; margin-bottom: 6px;">${warning.reason || 'No reason'}</div>
+            <div style="color: #94a3b8; font-size: 12px;">Issued by ${warning.issuedBy || 'Unknown'}</div>
+        </div>
+    `).join('');
+}
+
+async function viewPlayerModerationDetails(player, source = 'reputation') {
+    const [warnings, reputationResponse, playersResponse] = await Promise.all([
+        loadPlayerWarnings(player),
+        apiCall('/reputation', 'GET', { player }, true),
+        apiCall('/players', 'GET', null, true)
+    ]);
+
+    const playerRow = playersResponse && Array.isArray(playersResponse.players)
+        ? playersResponse.players.find(entry => entry.name && entry.name.toLowerCase() === player.toLowerCase())
+        : null;
+
+    const details = reputationResponse || {};
+    const warningCount = typeof details.warnings === 'number' ? details.warnings : warnings.length;
+    const banCount = typeof details.bans === 'number' ? details.bans : 0;
+    const muteCount = typeof details.mutes === 'number' ? details.mutes : 0;
+    const positiveNotes = typeof details.positiveNotes === 'number' ? details.positiveNotes : 0;
+    const score = typeof details.score === 'number' ? details.score : (0 - (warningCount * 15) - (banCount * 30));
+
+    document.getElementById('modal-rep-player').textContent = player;
+    document.getElementById('modal-rep-score').textContent = score;
+    document.getElementById('modal-rep-status').textContent = score >= 50 ? 'Good' : (score <= -50 ? 'Bad' : 'Neutral');
+    document.getElementById('modal-rep-warnings').textContent = warningCount;
+    document.getElementById('modal-rep-mutes').textContent = muteCount;
+    document.getElementById('modal-rep-bans').textContent = banCount;
+    document.getElementById('modal-rep-positive').textContent = positiveNotes;
+    document.getElementById('modal-rep-source').textContent = source === 'players' ? 'Opened from Players' : 'Opened from Reputation';
+    document.getElementById('modal-rep-playtime').textContent = playerRow ? `${playerRow.playtime || 0} h` : 'Unknown';
+    document.getElementById('modal-rep-punished').textContent = playerRow ? (playerRow.punished ? 'Active punishment' : 'No active punishment') : 'Unknown';
+    document.getElementById('modal-rep-warning-history').innerHTML = renderPlayerWarnings(warnings);
+    document.getElementById('reputation-modal').style.display = 'block';
 }
 
 function searchReputation() {
@@ -1804,10 +1860,7 @@ async function deleteKit(name) {
 }
 
 async function viewPlayerReputation(player) {
-    const rep = await apiCall('/reputation', 'GET', { player });
-    if (rep) {
-        alert(` Reputation\nScore: ${rep.score}\nWarnings: ${rep.warnings}\nBans: ${rep.bans}`);
-    }
+    await viewPlayerModerationDetails(player, 'reputation');
 }
 
 async function editGroup(name) {
