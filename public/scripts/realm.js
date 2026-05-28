@@ -10,6 +10,11 @@ let currentUserName = "WebAdmin";
 let punishmentsInterval = null;
 let chatRefreshInterval = null;
 let serverLogsInterval = null;
+let serverLogsSocket = null;
+let shouldStreamServerLogs = false;
+let lastChatSignature = '';
+let lastPunishmentsSignature = '';
+let lastRenderedLogsViewKey = '';
 const UNSUPPORTED_TABS = new Set(['roleplay', 'voterewards']);
 
 async function loadUserDetails() {
@@ -87,6 +92,9 @@ function switchTab(name, button) {
         return;
     }
 
+    shouldStreamServerLogs = false;
+    closeServerLogsStream();
+
     // Clear any running auto-refresh intervals from other tabs
     if (punishmentsInterval) clearInterval(punishmentsInterval);
     if (chatRefreshInterval) clearInterval(chatRefreshInterval);
@@ -159,7 +167,8 @@ function switchTab(name, button) {
     if (name === 'economy') loadEconomy();
     if (name === 'serverlogs') {
         loadServerLogs();
-        serverLogsInterval = setInterval(loadServerLogs, 3000);
+        shouldStreamServerLogs = true;
+        openServerLogsStream();
     }
     if (name === 'appeals') loadAppeals();
     if (name === 'announcements') loadAnnouncements();
@@ -232,6 +241,77 @@ async function apiCall(endpoint, method = 'GET', params = null, suppressError = 
     } catch (e) {
         console.error('API Error:', e);
         return null;
+    }
+}
+
+function buildLiveDataSignature(data) {
+    try {
+        return JSON.stringify(data ?? null);
+    } catch (error) {
+        return String(Date.now());
+    }
+}
+
+function getWebSocketUrl(path) {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${protocol}//${window.location.host}${path}`;
+}
+
+function closeServerLogsStream() {
+    if (serverLogsSocket) {
+        const socket = serverLogsSocket;
+        serverLogsSocket = null;
+        socket.onopen = null;
+        socket.onmessage = null;
+        socket.onerror = null;
+        socket.onclose = null;
+        try {
+            socket.close();
+        } catch (error) {
+            console.warn('Failed to close server log stream cleanly', error);
+        }
+    }
+}
+
+function openServerLogsStream() {
+    if (!shouldStreamServerLogs || serverLogsSocket) {
+        return;
+    }
+
+    try {
+        const socket = new WebSocket(getWebSocketUrl('/api/console'));
+        serverLogsSocket = socket;
+
+        socket.onmessage = event => {
+            if (!shouldStreamServerLogs || typeof event.data !== 'string' || !event.data.trim()) {
+                return;
+            }
+            if (!Array.isArray(window.allServerLogs)) {
+                window.allServerLogs = [];
+            }
+            window.allServerLogs.push(event.data);
+            if (window.allServerLogs.length > 1000) {
+                window.allServerLogs = window.allServerLogs.slice(-1000);
+            }
+            renderLogs();
+        };
+
+        socket.onclose = () => {
+            serverLogsSocket = null;
+            if (shouldStreamServerLogs) {
+                window.setTimeout(() => {
+                    if (shouldStreamServerLogs && !serverLogsSocket) {
+                        openServerLogsStream();
+                    }
+                }, 3000);
+            }
+        };
+
+        socket.onerror = error => {
+            console.warn('Server log stream error', error);
+        };
+    } catch (error) {
+        console.warn('Unable to open server log stream', error);
     }
 }
 
@@ -649,20 +729,44 @@ function getChatAvatar(player) {
     return `<img src="https://mc-heads.net/avatar/${encodeURIComponent(player)}/24" style="width:24px;height:24px;border-radius:4px;vertical-align:middle;margin-right:6px;" onerror="this.style.display='none'">`;
 }
 
+function renderChatEntry(entry) {
+    return `<div style="padding: 8px; border-bottom: 1px solid #444; display: flex; align-items: center;">
+            <span style="color: #999; font-size: 11px; margin-right: 8px; white-space: nowrap;">${entry.timestamp || ''}</span>
+            <strong style="color: #4ec9b0; margin-right: 6px; white-space: nowrap;">${entry.player || 'Unknown'}:</strong>
+            <span style="color: #ccc;">${entry.message || ''}</span>
+        </div>`;
+}
+
 async function refreshChat() {
     const chat = await apiCall('/chat');
-    const html = (chat || []).map(c => {
-        const avatar = getChatAvatar(c.player);
-        return `<div style="padding: 8px; border-bottom: 1px solid #444; display: flex; align-items: center;">
-            
-            <span style="color: #999; font-size: 11px; margin-right: 8px; white-space: nowrap;">${c.timestamp || ''}</span>
-            <strong style="color: #4ec9b0; margin-right: 6px; white-space: nowrap;">${c.player || 'Unknown'}:</strong>
-            <span style="color: #ccc;">${c.message || ''}</span>
-        </div>`;
-    }).join('');
     const chatDisplay = document.getElementById('chat-display');
-    chatDisplay.innerHTML = html || '<div style="padding: 8px; color: #999;">No chat messages yet</div>';
-    chatDisplay.scrollTop = chatDisplay.scrollHeight;
+    const entries = Array.isArray(chat) ? chat : [];
+    const signature = buildLiveDataSignature(entries);
+    if (signature === lastChatSignature) {
+        return;
+    }
+
+    const previousEntries = Array.isArray(window.latestChatEntries) ? window.latestChatEntries : [];
+    const canAppendOnly = previousEntries.length > 0
+        && entries.length >= previousEntries.length
+        && buildLiveDataSignature(entries.slice(0, previousEntries.length)) === buildLiveDataSignature(previousEntries);
+    const isScrolledToBottom = chatDisplay.scrollHeight - chatDisplay.clientHeight <= chatDisplay.scrollTop + 50;
+
+    if (entries.length === 0) {
+        chatDisplay.innerHTML = '<div style="padding: 8px; color: #999;">No chat messages yet</div>';
+    } else if (canAppendOnly) {
+        const newEntries = entries.slice(previousEntries.length);
+        chatDisplay.insertAdjacentHTML('beforeend', newEntries.map(renderChatEntry).join(''));
+    } else {
+        chatDisplay.innerHTML = entries.map(renderChatEntry).join('');
+    }
+
+    if (isScrolledToBottom || chatDisplay.scrollTop === 0) {
+        chatDisplay.scrollTop = chatDisplay.scrollHeight;
+    }
+
+    window.latestChatEntries = entries;
+    lastChatSignature = signature;
 }
 
 async function banPlayer() {
@@ -1628,7 +1732,13 @@ async function loadPunishments() {
         }
     }
 
-    const html = punishments && punishments.length ? punishments.map(p => `
+    const normalizedPunishments = Array.isArray(punishments) ? punishments : [];
+    const signature = buildLiveDataSignature(normalizedPunishments);
+    if (signature === lastPunishmentsSignature) {
+        return;
+    }
+
+    const html = normalizedPunishments.length ? normalizedPunishments.map(p => `
         <tr>
             <td>${p.player}</td>
             <td>${p.duration}${typeof p.duration === 'number' ? ' min' : ''}</td>
@@ -1643,6 +1753,7 @@ async function loadPunishments() {
         </tr>
     `).join('') : '<tr><td colspan="7">No active punishments</td></tr>';
     document.getElementById('active-punishments').innerHTML = html;
+    lastPunishmentsSignature = signature;
 }
 
 async function createCustomPunishment() {
@@ -2244,6 +2355,7 @@ function filterAuditLog() {
 async function loadServerLogs() {
     const data = await apiCall('/logs');
     window.allServerLogs = data && data.logs ? data.logs : [];
+    lastRenderedLogsViewKey = '';
     renderLogs();
 }
 
@@ -2254,6 +2366,11 @@ function renderLogs() {
     let filtered = window.allServerLogs || [];
     if (level) filtered = filtered.filter(l => l.includes(`[${level}]`));
     if (search) filtered = filtered.filter(l => l.toLowerCase().includes(search));
+
+    const viewKey = `${search}::${level}::${buildLiveDataSignature(filtered)}`;
+    if (viewKey === lastRenderedLogsViewKey) {
+        return;
+    }
     
     const html = filtered.map(l => {
         let color = '#ccc';
@@ -2267,6 +2384,7 @@ function renderLogs() {
     const isScrolledToBottom = viewer.scrollHeight - viewer.clientHeight <= viewer.scrollTop + 50;
     
     viewer.innerHTML = html || '<div style="color: #999;">No logs to display</div>';
+    lastRenderedLogsViewKey = viewKey;
     
     if (isScrolledToBottom || viewer.scrollTop === 0) {
         viewer.scrollTop = viewer.scrollHeight;
@@ -2280,6 +2398,8 @@ function filterLogs() {
 async function clearLogs() {
     if (confirm('Clear all server logs?')) {
         await apiCall('/logs/clear', 'POST');
+        window.allServerLogs = [];
+        lastRenderedLogsViewKey = '';
         loadServerLogs();
     }
 }
