@@ -102,6 +102,15 @@ const apiProxy = createProxyMiddleware({
         if (path === '/' || path === '') {
             return '/api';
         }
+
+        if (path === '/api' || path.startsWith('/api/')) {
+            return path;
+        }
+
+        if (path === '/panel-api' || path.startsWith('/panel-api/')) {
+            return path.replace(/^\/panel-api(?=\/|$)/, '/api');
+        }
+
         return `/api${path.startsWith('/') ? path : `/${path}`}`;
     },
     onProxyRes: (proxyRes, req, res) => {
