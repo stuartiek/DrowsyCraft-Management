@@ -525,10 +525,11 @@ async function loadAllNotes() {
                      onmouseover="this.style.background='#3a3a40';this.style.transform='translateY(-2px)'" 
                      onmouseout="this.style.background='#2d2d30';this.style.transform='none'">
                     <img src="https://mc-heads.net/avatar/${encodeURIComponent(p.player)}/32" style="width:32px;height:32px;border-radius:4px;" onerror="this.style.display='none'">
-                    <div>
+                    <div style="flex: 1; min-width: 0;">
                         <div style="color: #4ec9b0; font-weight: bold;">${p.player}</div>
                         <div style="color: #999; font-size: 11px;">${p.count} note${p.count !== 1 ? 's' : ''} · ${p.lastUpdated}</div>
                     </div>
+                    <button onclick="event.stopPropagation(); viewPlayerModerationDetails('${p.player}', 'notes');" class="btn-info" style="padding: 4px 8px; font-size: 11px; white-space: nowrap;">View</button>
                 </div>
             `).join('')}
         </div>`;
@@ -561,12 +562,15 @@ async function searchNotes() {
     }
     
     const html = `
-        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 15px; padding: 10px; background: #252526; border-radius: 6px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 15px; padding: 10px; background: #252526; border-radius: 6px; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 12px;">
             <img src="https://mc-heads.net/avatar/${encodeURIComponent(player)}/40" style="width:40px;height:40px;border-radius:6px;" onerror="this.style.display='none'">
-            <div>
-                <div style="color: #4ec9b0; font-weight: bold; font-size: 16px;">${player}</div>
-                <div style="color: #999; font-size: 12px;">${notes.length} note${notes.length !== 1 ? 's' : ''}</div>
+                <div>
+                    <div style="color: #4ec9b0; font-weight: bold; font-size: 16px;">${player}</div>
+                    <div style="color: #999; font-size: 12px;">${notes.length} note${notes.length !== 1 ? 's' : ''}</div>
+                </div>
             </div>
+            <button onclick="viewPlayerModerationDetails('${player}', 'notes')" class="btn-info" style="padding: 6px 12px; font-size: 12px; white-space: nowrap;">View Moderation History</button>
         </div>
         ${notes.map(n => {
             const s = getCategoryStyle(n.category);
@@ -582,6 +586,7 @@ async function searchNotes() {
                 <div style="margin-top: 8px; display: flex; gap: 8px;">
                     <span style="color: #999; font-size: 11px; cursor: pointer; text-decoration: underline;" onclick="openNoteModal('${player}', ${n.index})">Edit</span>
                     <span style="color: #d32f2f; font-size: 11px; cursor: pointer; text-decoration: underline;" onclick="quickDeleteNote('${player}', ${n.index})">Delete</span>
+                    <span style="color: #4ec9b0; font-size: 11px; cursor: pointer; text-decoration: underline;" onclick="viewPlayerModerationDetails('${player}', 'notes')">History</span>
                 </div>
             </div>`;
         }).join('')}`;
@@ -1631,7 +1636,10 @@ async function loadPunishments() {
             <td>${p.issuedBy || 'Unknown'}</td>
             <td>${p.createdAt || 'Unknown'}</td>
             <td>${p.endsAt}</td>
-            <td><button onclick="removePunishment('${p.player}')" style="padding: 4px 8px; font-size: 11px; background: #d32f2f;">Remove</button></td>
+            <td>
+                <button onclick="viewPlayerModerationDetails('${p.player}', 'punishments')" style="padding: 4px 8px; font-size: 11px; margin-right: 6px;">View</button>
+                <button onclick="removePunishment('${p.player}')" style="padding: 4px 8px; font-size: 11px; background: #d32f2f;">Remove</button>
+            </td>
         </tr>
     `).join('') : '<tr><td colspan="7">No active punishments</td></tr>';
     document.getElementById('active-punishments').innerHTML = html;
