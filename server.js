@@ -92,9 +92,8 @@ if (webpush) {
 app.use(express.static(path.join(__dirname, 'public')));
 
 // --- API PROXY ---
-// Forwards the hosted panel's internal API prefix to the Minecraft Server.
-// Avoid using /api here because some shared hosting front-ends intercept or deny it before Node sees the request.
-app.use('/panel-api', createProxyMiddleware({
+// Support both the new internal prefix and the legacy /api prefix so cached clients can still log in.
+const apiProxy = createProxyMiddleware({
     target: MINECRAFT_SERVER_URL,
     changeOrigin: true,
     ws: true, // Enable Websockets for Console
@@ -110,7 +109,10 @@ app.use('/panel-api', createProxyMiddleware({
         }
         res.status(503).json({ error: `Minecraft Server Unreachable (${err.code}): ${err.message}` });
     }
-}));
+});
+
+app.use('/panel-api', apiProxy);
+app.use('/api', apiProxy);
 
 // --- ROUTES ---
 app.get('/', (req, res) => {
