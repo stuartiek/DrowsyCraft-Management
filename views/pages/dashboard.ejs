@@ -551,6 +551,23 @@
                     <button onclick="punishPlayer(180, 'mod-punish3h-player', 'mod-punish3h-reason')" class="full-width btn-danger" style="margin-top: 5px;">PUNISH 3H</button>
                 </div>
             </div>
+            <div class="card" style="margin-top: 24px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px;">
+                    <div>
+                        <h3 style="margin: 0; color: #f59e0b;">Warning History</h3>
+                        <div style="color: #94a3b8; font-size: 13px; margin-top: 4px;">Shared moderation warnings from the live backend</div>
+                    </div>
+                    <button onclick="loadWarnings()" class="btn-warning" style="white-space: nowrap;">Refresh Warnings</button>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <tr><th>Player</th><th>Warning #</th><th>Reason</th><th>Issued By</th><th>Date</th></tr>
+                        <tbody id="warning-history-list">
+                            <tr><td colspan="5">Loading warnings...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
             <h3 style="margin-top: 40px; color: #8b5cf6; border-bottom: 2px solid #8b5cf6; padding-bottom: 10px;">🚷 Banned Players</h3>
             <table>
                 <tr><th>Player</th><th>Reason</th><th>Action</th></tr>
@@ -787,7 +804,7 @@
             </div>
             <h3 style="margin-top: 30px; color: #8b5cf6;">Active Punishments</h3>
             <table>
-                <tr><th>Player</th><th>Duration</th><th>Reason</th><th>Ends At</th><th>Actions</th></tr>
+                <tr><th>Player</th><th>Duration</th><th>Reason</th><th>Issued By</th><th>Created</th><th>Ends At</th><th>Actions</th></tr>
                 <tbody id="active-punishments"></tbody>
             </table>
         </div>

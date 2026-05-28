@@ -125,7 +125,10 @@ function switchTab(name, button) {
     }
     if (name === 'players') loadPlayers();
     if (name === 'tickets') loadTickets();
-    if (name === 'moderation') loadBanned();
+    if (name === 'moderation') {
+        loadBanned();
+        loadWarnings();
+    }
     if (name === 'chat') {
         refreshChat();
         chatRefreshInterval = setInterval(refreshChat, 3000);
@@ -675,6 +678,26 @@ async function warnPlayer() {
     document.getElementById('mod-warn-player').value = '';
     document.getElementById('mod-warn-reason').value = '';
     alert('Player warned!');
+    loadWarnings();
+}
+
+async function loadWarnings() {
+    const response = await apiCall('/warnings', 'GET', null, true);
+    const warnings = response && Array.isArray(response.warnings) ? response.warnings : [];
+    const html = warnings.length ? warnings.map(warning => `
+        <tr>
+            <td>${warning.player || 'Unknown'}</td>
+            <td>${warning.warningNumber || 'N/A'}</td>
+            <td>${warning.reason || 'No reason'}</td>
+            <td>${warning.issuedBy || 'Unknown'}</td>
+            <td>${warning.date ? new Date(warning.date).toLocaleString() : 'Unknown'}</td>
+        </tr>
+    `).join('') : '<tr><td colspan="5">No warnings found</td></tr>';
+
+    const table = document.getElementById('warning-history-list');
+    if (table) {
+        table.innerHTML = html;
+    }
 }
 
 async function punishPlayer(minutes, inputId, reasonInputId) {
@@ -1490,7 +1513,7 @@ function getCachedPunishment(player) {
 }
 
 function setCachedPunishment(player, reason, minutes) {
-    const data = { reason, end: Date.now() + (minutes * 60000) };
+    const data = { reason, end: Date.now() + (minutes * 60000), createdAt: Date.now(), issuedBy: 'Web Panel (cached)' };
     localStorage.setItem('punish_cache_' + player, JSON.stringify(data));
 }
 
@@ -1536,6 +1559,8 @@ async function loadPunishments() {
                     player: p.name,
                     duration: duration,
                     reason: p.punishmentReason || p.reason || (cached ? cached.reason : 'Unknown (Check logs)'),
+                    issuedBy: p.punishedBy || (cached ? cached.issuedBy : 'Unknown'),
+                    createdAt: p.punishedAt ? new Date(p.punishedAt).toLocaleString() : (cached && cached.createdAt ? new Date(cached.createdAt).toLocaleString() : 'Unknown'),
                     endsAt: endsAt
                 };
             });
@@ -1547,10 +1572,12 @@ async function loadPunishments() {
             <td>${p.player}</td>
             <td>${p.duration}${typeof p.duration === 'number' ? ' min' : ''}</td>
             <td>${p.reason}</td>
+            <td>${p.issuedBy || 'Unknown'}</td>
+            <td>${p.createdAt || 'Unknown'}</td>
             <td>${p.endsAt}</td>
             <td><button onclick="removePunishment('${p.player}')" style="padding: 4px 8px; font-size: 11px; background: #d32f2f;">Remove</button></td>
         </tr>
-    `).join('') : '<tr><td colspan="5">No active punishments</td></tr>';
+    `).join('') : '<tr><td colspan="7">No active punishments</td></tr>';
     document.getElementById('active-punishments').innerHTML = html;
 }
 
