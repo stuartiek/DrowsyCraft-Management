@@ -1795,10 +1795,67 @@ function refreshOpenModerationModal() {
     }
 }
 
+async function loadPlayerWarnings(player) {
+    const response = latestWarningsResponse && Array.isArray(latestWarningsResponse.warnings)
+        ? latestWarningsResponse
+        : await apiCall('/warnings', 'GET', null, true);
+    const warnings = response && Array.isArray(response.warnings) ? response.warnings : [];
+    return warnings.filter(warning => (warning.player || '').toLowerCase() === player.toLowerCase());
+}
+
+function buildLegacyModerationTimeline(warnings) {
+    return (Array.isArray(warnings) ? warnings : []).map(warning => ({
+        type: 'warning',
+        title: `Warning #${warning.warningNumber || 'N/A'}`,
+        detail: warning.reason || 'No reason',
+        actor: warning.issuedBy || 'Unknown',
+        timestamp: warning.date || null,
+        timestampLabel: warning.date ? new Date(warning.date).toLocaleString() : 'Unknown date',
+        sortTimestamp: warning.date || 0,
+        hasTimestamp: Boolean(warning.date)
+    }));
+}
+
+async function loadLegacyModerationDetails(player) {
+    const [warnings, reputationResponse, playersResponse] = await Promise.all([
+        loadPlayerWarnings(player),
+        apiCall('/reputation', 'GET', { player }, true),
+        apiCall('/players', 'GET', null, true)
+    ]);
+
+    const playerRow = playersResponse && Array.isArray(playersResponse.players)
+        ? playersResponse.players.find(entry => entry.name && entry.name.toLowerCase() === player.toLowerCase())
+        : null;
+
+    const reputation = reputationResponse || {};
+    const warningCount = typeof reputation.warnings === 'number' ? reputation.warnings : warnings.length;
+    const banCount = typeof reputation.bans === 'number' ? reputation.bans : 0;
+    const muteCount = typeof reputation.mutes === 'number' ? reputation.mutes : 0;
+    const positiveNotes = typeof reputation.positiveNotes === 'number' ? reputation.positiveNotes : 0;
+    const score = typeof reputation.score === 'number' ? reputation.score : (0 - (warningCount * 15) - (banCount * 30));
+
+    return {
+        player,
+        score,
+        status: score >= 50 ? 'Good' : (score <= -50 ? 'Bad' : 'Neutral'),
+        warnings: warningCount,
+        mutes: muteCount,
+        bans: banCount,
+        positiveNotes: positiveNotes,
+        playtime: playerRow ? (playerRow.playtime || 0) : null,
+        punished: playerRow ? Boolean(playerRow.punished) : null,
+        timeline: buildLegacyModerationTimeline(warnings),
+        hasUndatedEntries: false
+    };
+}
+
 async function viewPlayerModerationDetails(player, source = 'reputation') {
     currentModerationDetailPlayer = player;
     currentModerationDetailSource = source;
-    const details = await apiCall('/moderation/timeline', 'GET', { player }, true);
+    let details = await apiCall('/moderation/timeline', 'GET', { player }, true);
+    if (!details) {
+        details = await loadLegacyModerationDetails(player);
+    }
     if (!details) {
         return;
     }
