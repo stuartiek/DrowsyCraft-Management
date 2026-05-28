@@ -4,7 +4,7 @@ if (!localStorage.getItem('authToken')) {
 }
 
 const AUTH_TOKEN = localStorage.getItem('authToken');
-const API_URL = `/api`;
+const API_URL = `/panel-api`;
 let userPermissions = new Set();
 let currentUserName = "WebAdmin";
 let punishmentsInterval = null;
@@ -357,7 +357,7 @@ function openServerLogsStream() {
     }
 
     try {
-        const socket = new WebSocket(getWebSocketUrl('/api/console'));
+        const socket = new WebSocket(getWebSocketUrl('/panel-api/console'));
         serverLogsSocket = socket;
 
         socket.onmessage = event => {

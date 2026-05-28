@@ -92,8 +92,9 @@ if (webpush) {
 app.use(express.static(path.join(__dirname, 'public')));
 
 // --- API PROXY ---
-// Forwards /api requests to the Minecraft Server
-app.use('/api', createProxyMiddleware({
+// Forwards the hosted panel's internal API prefix to the Minecraft Server.
+// Avoid using /api here because some shared hosting front-ends intercept or deny it before Node sees the request.
+app.use('/panel-api', createProxyMiddleware({
     target: MINECRAFT_SERVER_URL,
     changeOrigin: true,
     ws: true, // Enable Websockets for Console
