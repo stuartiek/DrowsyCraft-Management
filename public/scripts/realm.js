@@ -12,6 +12,11 @@ let chatRefreshInterval = null;
 let serverLogsInterval = null;
 let serverLogsSocket = null;
 let shouldStreamServerLogs = false;
+let liveDataSocket = null;
+let latestLivePlayersPayload = null;
+let latestWarningsResponse = { warnings: [] };
+let currentModerationDetailPlayer = null;
+let currentModerationDetailSource = 'reputation';
 let lastChatSignature = '';
 let lastPunishmentsSignature = '';
 let lastRenderedLogsViewKey = '';
@@ -139,7 +144,6 @@ function switchTab(name, button) {
     }
     if (name === 'chat') {
         refreshChat();
-        chatRefreshInterval = setInterval(refreshChat, 3000);
     }
     if (name === 'whitelist') loadWhitelist();
     if (name === 'mutes') loadMuted();
@@ -155,7 +159,6 @@ function switchTab(name, button) {
     if (name === 'permissions') loadPermissions();
     if (name === 'punishments') {
         loadPunishments();
-        punishmentsInterval = setInterval(loadPunishments, 5000);
     }
     if (name === 'auditlog') loadAuditLog();
     if (name === 'afk') loadAFKPlayers();
@@ -257,6 +260,69 @@ function getWebSocketUrl(path) {
     return `${protocol}//${window.location.host}${path}`;
 }
 
+function getActiveTabName() {
+    const activeTab = document.querySelector('.tab.active');
+    return activeTab ? activeTab.id : '';
+}
+
+function openLiveDataStream() {
+    if (liveDataSocket || !AUTH_TOKEN) {
+        return;
+    }
+
+    try {
+        const socket = new WebSocket(getWebSocketUrl(`${API_URL}/live?token=${encodeURIComponent(AUTH_TOKEN)}`));
+        liveDataSocket = socket;
+
+        socket.onmessage = event => {
+            try {
+                handleLiveDataMessage(JSON.parse(event.data));
+            } catch (error) {
+                console.warn('Failed to parse live update', error);
+            }
+        };
+
+        socket.onclose = () => {
+            liveDataSocket = null;
+            window.setTimeout(() => {
+                if (!liveDataSocket && localStorage.getItem('authToken')) {
+                    openLiveDataStream();
+                }
+            }, 3000);
+        };
+
+        socket.onerror = error => {
+            console.warn('Live data stream error', error);
+        };
+    } catch (error) {
+        console.warn('Unable to open live data stream', error);
+    }
+}
+
+function handleLiveDataMessage(message) {
+    if (!message || !message.type) {
+        return;
+    }
+
+    switch (message.type) {
+        case 'players':
+            latestLivePlayersPayload = message.data || { players: [] };
+            applyLivePlayersSnapshot(latestLivePlayersPayload);
+            break;
+        case 'chat':
+            renderChatEntries(Array.isArray(message.data) ? message.data : []);
+            break;
+        case 'punishments':
+            renderPunishments(Array.isArray(message.data) ? message.data : []);
+            break;
+        case 'warnings':
+            renderWarningsTable(message.data);
+            break;
+        default:
+            break;
+    }
+}
+
 function closeServerLogsStream() {
     if (serverLogsSocket) {
         const socket = serverLogsSocket;
@@ -334,6 +400,25 @@ async function updateOverview() {
     document.getElementById('stat-muted').textContent = mutedList.length;
 }
 
+function updateOverviewFromPlayers(players) {
+    const onlinePlayersStat = document.getElementById('stat-players');
+    const punishedPlayersStat = document.getElementById('stat-punished');
+    if (!onlinePlayersStat || !punishedPlayersStat) {
+        return;
+    }
+
+    const rows = Array.isArray(players) ? players : [];
+    let punished = 0;
+    rows.forEach(player => {
+        if (player && player.punished) {
+            punished += 1;
+        }
+    });
+
+    onlinePlayersStat.textContent = rows.length;
+    punishedPlayersStat.textContent = punished;
+}
+
 async function loadNetworkOverviewStatus() {
     const network = await apiCall('/network', 'GET', null, true);
     renderNetworkOverviewStatus(network && network.runtime ? network.runtime : null);
@@ -392,8 +477,13 @@ async function broadcast() {
 async function loadPlayers() {
     const response = await apiCall('/players');
     const players = response && response.players ? response.players : [];
+    renderPlayers(players);
+}
+
+function renderPlayers(players) {
     const playerNames = players.map(p => p.name);
     updatePlayerDatalist(playerNames);
+    updateOverviewFromPlayers(players);
     const html = players.length > 0 ? players.map(p => `
         <tr class="${p.punished ? 'punished' : ''}">
             <td>
@@ -419,6 +509,22 @@ async function loadPlayers() {
         </tr>
     `).join('') : '<tr><td colspan="8">No players online</td></tr>';
     document.getElementById('players-list').innerHTML = html;
+}
+
+function applyLivePlayersSnapshot(payload) {
+    const players = payload && Array.isArray(payload.players) ? payload.players : [];
+    updatePlayerDatalist(players.map(player => player.name));
+    updateOverviewFromPlayers(players);
+
+    if (getActiveTabName() === 'players') {
+        renderPlayers(players);
+    }
+
+    if (document.getElementById('reputation-modal')?.style.display === 'block' && currentModerationDetailPlayer) {
+        const livePlayer = players.find(player => player.name && player.name.toLowerCase() === currentModerationDetailPlayer.toLowerCase());
+        document.getElementById('modal-rep-playtime').textContent = livePlayer ? `${livePlayer.playtime || 0} h` : 'Unknown';
+        document.getElementById('modal-rep-punished').textContent = livePlayer ? (livePlayer.punished ? 'Active punishment' : 'No active punishment') : 'Unknown';
+    }
 }
 
 function updatePlayerDatalist(playerNames) {
@@ -730,43 +836,53 @@ function getChatAvatar(player) {
 }
 
 function renderChatEntry(entry) {
+    const avatar = getChatAvatar(entry.player);
     return `<div style="padding: 8px; border-bottom: 1px solid #444; display: flex; align-items: center;">
+            ${avatar}
             <span style="color: #999; font-size: 11px; margin-right: 8px; white-space: nowrap;">${entry.timestamp || ''}</span>
             <strong style="color: #4ec9b0; margin-right: 6px; white-space: nowrap;">${entry.player || 'Unknown'}:</strong>
             <span style="color: #ccc;">${entry.message || ''}</span>
         </div>`;
 }
 
-async function refreshChat() {
-    const chat = await apiCall('/chat');
+function renderChatEntries(entries) {
     const chatDisplay = document.getElementById('chat-display');
-    const entries = Array.isArray(chat) ? chat : [];
-    const signature = buildLiveDataSignature(entries);
+    if (!chatDisplay) {
+        return;
+    }
+
+    const normalizedEntries = Array.isArray(entries) ? entries : [];
+    const signature = buildLiveDataSignature(normalizedEntries);
     if (signature === lastChatSignature) {
         return;
     }
 
     const previousEntries = Array.isArray(window.latestChatEntries) ? window.latestChatEntries : [];
     const canAppendOnly = previousEntries.length > 0
-        && entries.length >= previousEntries.length
-        && buildLiveDataSignature(entries.slice(0, previousEntries.length)) === buildLiveDataSignature(previousEntries);
+        && normalizedEntries.length >= previousEntries.length
+        && buildLiveDataSignature(normalizedEntries.slice(0, previousEntries.length)) === buildLiveDataSignature(previousEntries);
     const isScrolledToBottom = chatDisplay.scrollHeight - chatDisplay.clientHeight <= chatDisplay.scrollTop + 50;
 
-    if (entries.length === 0) {
+    if (normalizedEntries.length === 0) {
         chatDisplay.innerHTML = '<div style="padding: 8px; color: #999;">No chat messages yet</div>';
     } else if (canAppendOnly) {
-        const newEntries = entries.slice(previousEntries.length);
+        const newEntries = normalizedEntries.slice(previousEntries.length);
         chatDisplay.insertAdjacentHTML('beforeend', newEntries.map(renderChatEntry).join(''));
     } else {
-        chatDisplay.innerHTML = entries.map(renderChatEntry).join('');
+        chatDisplay.innerHTML = normalizedEntries.map(renderChatEntry).join('');
     }
 
     if (isScrolledToBottom || chatDisplay.scrollTop === 0) {
         chatDisplay.scrollTop = chatDisplay.scrollHeight;
     }
 
-    window.latestChatEntries = entries;
+    window.latestChatEntries = normalizedEntries;
     lastChatSignature = signature;
+}
+
+async function refreshChat() {
+    const chat = await apiCall('/chat');
+    renderChatEntries(Array.isArray(chat) ? chat : []);
 }
 
 async function banPlayer() {
@@ -793,7 +909,12 @@ async function warnPlayer() {
 
 async function loadWarnings() {
     const response = await apiCall('/warnings', 'GET', null, true);
-    const warnings = response && Array.isArray(response.warnings) ? response.warnings : [];
+    renderWarningsTable(response);
+}
+
+function renderWarningsTable(response) {
+    latestWarningsResponse = response && Array.isArray(response.warnings) ? response : { warnings: [] };
+    const warnings = latestWarningsResponse.warnings;
     const html = warnings.length ? warnings.map(warning => `
         <tr>
             <td>${warning.player || 'Unknown'}</td>
@@ -807,6 +928,12 @@ async function loadWarnings() {
     const table = document.getElementById('warning-history-list');
     if (table) {
         table.innerHTML = html;
+    }
+
+    if (document.getElementById('reputation-modal')?.style.display === 'block' && currentModerationDetailPlayer) {
+        const playerWarnings = warnings.filter(warning => (warning.player || '').toLowerCase() === currentModerationDetailPlayer.toLowerCase());
+        document.getElementById('modal-rep-warning-history').innerHTML = renderPlayerWarnings(playerWarnings);
+        document.getElementById('modal-rep-warnings').textContent = playerWarnings.length;
     }
 }
 
@@ -1485,16 +1612,6 @@ function toggleMapSidebar() {
     sidebar.style.transform = isVisible ? 'translateX(100%)' : 'translateX(0)';
 }
 
-setInterval(updateOverview, 30000);
-setInterval(() => {
-    (async () => {
-        const response = await apiCall('/players');
-        if (response && response.players && response.players.length > 0) {
-            updatePlayerDatalist(response.players.map(p => p.name));
-        }
-    })();
-}, 5000);
-
 // --- NEW FEATURES ---
 
 async function loadPerformance() {
@@ -1547,7 +1664,9 @@ async function loadReputation() {
 }
 
 async function loadPlayerWarnings(player) {
-    const response = await apiCall('/warnings', 'GET', null, true);
+    const response = latestWarningsResponse && Array.isArray(latestWarningsResponse.warnings)
+        ? latestWarningsResponse
+        : await apiCall('/warnings', 'GET', null, true);
     const warnings = response && Array.isArray(response.warnings) ? response.warnings : [];
     return warnings.filter(warning => (warning.player || '').toLowerCase() === player.toLowerCase());
 }
@@ -1570,6 +1689,8 @@ function renderPlayerWarnings(warnings) {
 }
 
 async function viewPlayerModerationDetails(player, source = 'reputation') {
+    currentModerationDetailPlayer = player;
+    currentModerationDetailSource = source;
     const [warnings, reputationResponse, playersResponse] = await Promise.all([
         loadPlayerWarnings(player),
         apiCall('/reputation', 'GET', { player }, true),
@@ -1594,7 +1715,13 @@ async function viewPlayerModerationDetails(player, source = 'reputation') {
     document.getElementById('modal-rep-mutes').textContent = muteCount;
     document.getElementById('modal-rep-bans').textContent = banCount;
     document.getElementById('modal-rep-positive').textContent = positiveNotes;
-    document.getElementById('modal-rep-source').textContent = source === 'players' ? 'Opened from Players' : 'Opened from Reputation';
+    const sourceLabels = {
+        players: 'Opened from Players',
+        reputation: 'Opened from Reputation',
+        notes: 'Opened from Notes',
+        punishments: 'Opened from Punishments'
+    };
+    document.getElementById('modal-rep-source').textContent = sourceLabels[source] || 'Opened from Reputation';
     document.getElementById('modal-rep-playtime').textContent = playerRow ? `${playerRow.playtime || 0} h` : 'Unknown';
     document.getElementById('modal-rep-punished').textContent = playerRow ? (playerRow.punished ? 'Active punishment' : 'No active punishment') : 'Unknown';
     document.getElementById('modal-rep-warning-history').innerHTML = renderPlayerWarnings(warnings);
@@ -1732,6 +1859,10 @@ async function loadPunishments() {
         }
     }
 
+    renderPunishments(Array.isArray(punishments) ? punishments : []);
+}
+
+function renderPunishments(punishments) {
     const normalizedPunishments = Array.isArray(punishments) ? punishments : [];
     const signature = buildLiveDataSignature(normalizedPunishments);
     if (signature === lastPunishmentsSignature) {
@@ -3974,6 +4105,7 @@ async function saveAnnouncements() {
 // Auto-load overview on page load
 (async () => {
     await loadUserDetails();
+    openLiveDataStream();
 
     const savedTab = localStorage.getItem('activeTab');
     const savedTabButton = savedTab ? document.querySelector(`.nav-btn[onclick*="'${savedTab}'"]`) : null;
