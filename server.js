@@ -98,6 +98,12 @@ const apiProxy = createProxyMiddleware({
     changeOrigin: true,
     ws: true, // Enable Websockets for Console
     logLevel: 'debug',
+    pathRewrite: (path, req) => {
+        if (path === '/' || path === '') {
+            return '/api';
+        }
+        return `/api${path.startsWith('/') ? path : `/${path}`}`;
+    },
     onProxyRes: (proxyRes, req, res) => {
         console.log(`[Proxy] ${req.method} ${req.url} -> Status: ${proxyRes.statusCode}`);
     },
