@@ -259,32 +259,41 @@ async function loadNetworkOverviewStatus() {
 function renderNetworkOverviewStatus(runtime) {
     const profileBackend = document.getElementById('stat-network-profile-backend');
     const tokenBackend = document.getElementById('stat-network-token-backend');
+    const moderationBackend = document.getElementById('stat-network-moderation-backend');
     const profileMode = document.getElementById('stat-network-profile-mode');
     const tokenMode = document.getElementById('stat-network-token-mode');
+    const moderationMode = document.getElementById('stat-network-moderation-mode');
 
-    if (!profileBackend || !tokenBackend || !profileMode || !tokenMode) {
+    if (!profileBackend || !tokenBackend || !moderationBackend || !profileMode || !tokenMode || !moderationMode) {
         return;
     }
 
     if (!runtime) {
         profileBackend.textContent = 'Unavailable';
         tokenBackend.textContent = 'Unavailable';
+        moderationBackend.textContent = 'Unavailable';
         profileMode.textContent = 'Network API unavailable';
         tokenMode.textContent = 'Network API unavailable';
+        moderationMode.textContent = 'Network API unavailable';
         profileMode.style.color = '#d7ba7d';
         tokenMode.style.color = '#d7ba7d';
+        moderationMode.style.color = '#d7ba7d';
         return;
     }
 
     const profileShared = runtime.profileSharedBackendActive === true;
     const tokenShared = runtime.tokenSharedBackendActive === true;
+    const moderationShared = runtime.moderationSharedBackendActive === true;
 
     profileBackend.textContent = runtime.profileBackend || 'Unavailable';
     tokenBackend.textContent = runtime.tokenBackend || 'Unavailable';
+    moderationBackend.textContent = runtime.moderationBackend || 'Unavailable';
     profileMode.textContent = profileShared ? 'Shared backend active' : 'Local fallback active';
     tokenMode.textContent = tokenShared ? 'Shared backend active' : 'Local fallback active';
+    moderationMode.textContent = moderationShared ? 'Shared backend active' : 'Local fallback active';
     profileMode.style.color = profileShared ? '#4ec9b0' : '#d7ba7d';
     tokenMode.style.color = tokenShared ? '#4ec9b0' : '#d7ba7d';
+    moderationMode.style.color = moderationShared ? '#4ec9b0' : '#d7ba7d';
 }
 
 
